@@ -1,32 +1,48 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import config
+import logging
 import sys
+from dataclasses import asdict
+# 3rd-party dependencies
+from fastapi import FastAPI, HTTPException
 from googleapiclient.discovery import build
 from rich import print
+# custom modules
+from utils import extract_video_id, get_stats, InvalidYoutubeVideoURLError
 
-from utils import extract_video_id, VideoStats
 
 API_KEY = config.API_KEY
-youtube = build(serviceName='youtube', version='v3', developerKey=API_KEY)
+youtube = build(serviceName='youtube', version='v2', developerKey=API_KEY)
+
+logging.basicConfig(level=logging.DEBUG)
+
+app = FastAPI()
+
+@app.get("/")
+def index():
+    return {
+        "message": "SUCCESS"
+    }
 
 
-def get_stats(video_id: str) -> dict:
+@app.get("/stats")
+async def main(video_url: str) -> dict:
+    '''main endpoint which takes video_url as query string and returns stats'''
+    if not video_url:
+        raise HTTPException(status_code=400, detail="Bad request: provide video url as query string (?video_url=)")
 
-    requestStats = youtube.videos().list(
-                part="statistics",
-                id=video_id
-            )
-            
-    responseStats = requestStats.execute()
+    try:
+        target_video_id = extract_video_id(video_url)
+        logging.debug(target_video_id, video_url)
+    except InvalidYoutubeVideoURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    return VideoStats(
-        views=int(responseStats["items"][0]["statistics"]["viewCount"]),
-        likes=int(responseStats["items"][0]["statistics"]["likeCount"]),
-        dislikes=int(responseStats["items"][0]["statistics"]["dislikeCount"]),
-        comments=int(responseStats["items"][0]["statistics"]["commentCount"])
-    )
+    
+    stats_obj = get_stats(youtube_api_client=youtube, video_id=target_video_id)
+    return asdict(stats_obj)
 
 
 if __name__ == "__main__":
     target_video_id = extract_video_id(sys.argv[1])
-    stats = get_stats(target_video_id)
-    print(stats)
